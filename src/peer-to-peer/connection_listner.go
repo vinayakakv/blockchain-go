@@ -42,8 +42,13 @@ func (p *Peer) init() {
 	if err != nil {
 		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
 	}
+	pc, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", p.listenPort))
+	if err != nil {
+		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
+	}
 	log.Printf("Listening at %s\n", ln.Addr())
 	p.connections = make(chan net.Conn)
+	go handleBcast(pc)
 	go func() {
 		log.Printf("Hi")
 		for {
@@ -79,16 +84,27 @@ func handleConn(client net.Conn) {
 	log.Printf("Got message %s from %s\n", message.Action, client.RemoteAddr())
 }
 
-func (p *Peer) Broadcast(message Message) {
-	bcast_addr,err := net.ResolveUDPAddr("udp4","255.255.255.255:8084")
-	if err !=nil {
-		log.Printf("Error while resolving UDP adress. %v",err)
+func handleBcast(client net.PacketConn) {
+	for {
+		b := make([]byte, 1024)
+		_, addr, err := client.ReadFrom(b)
+		if err != nil {
+			log.Panicf("%s", err)
+		}
+		client.WriteTo([]byte("PONG"), addr)
 	}
-	con, err := net.DialUDP("udp4", nil,bcast_addr)
+}
+
+func (p *Peer) Broadcast(message Message) {
+	con, err := net.Dial("udp4", "255.255.255:8085")
 	if err != nil {
 		log.Printf("Error while attempting to broadcast %s\n", err)
 		return
 	}
-	defer con.Close()
+	//defer con.Close()
 	json.NewEncoder(con).Encode(message)
+	//con.Write([]byte ("PING"))
+	buffer := make([]byte, 1024)
+	con.Read(buffer)
+	log.Printf("Sent broadcast %s",buffer)
 }
