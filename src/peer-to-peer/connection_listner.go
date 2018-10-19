@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"encoding/json"
+	"errors"
+	"strings"
 )
 
 type callback func(arg interface{})
@@ -15,6 +17,7 @@ type Peer struct {
 	listenPort  uint16
 	handlers    map[string]callback
 	connections chan net.Conn
+	bacstSoc    net.PacketConn
 }
 
 type Message struct {
@@ -43,10 +46,11 @@ func (p *Peer) init() {
 		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
 	}
 	pc, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", p.listenPort))
+	p.bacstSoc = pc
 	if err != nil {
 		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
 	}
-	log.Printf("Listening at %s\n", ln.Addr())
+	log.Printf("Listening at tcp://%s\tudp://%s\n", ln.Addr(), pc.LocalAddr())
 	p.connections = make(chan net.Conn)
 	go handleBcast(pc)
 	go func() {
@@ -85,26 +89,69 @@ func handleConn(client net.Conn) {
 }
 
 func handleBcast(client net.PacketConn) {
+	//log.Printf("Handling broadcasts at %s",client.LocalAddr())
 	for {
 		b := make([]byte, 1024)
-		_, addr, err := client.ReadFrom(b)
+		n, addr, err := client.ReadFrom(b)
 		if err != nil {
 			log.Panicf("%s", err)
 		}
-		client.WriteTo([]byte("PONG"), addr)
+		log.Printf("Recieved bcast from %s. Message is %s", addr, b[:n])
+		extip, _ := externalIP()
+		log.Printf("External IP is %s", extip)
+		if !strings.Contains(addr.String(), extip) {
+			client.WriteTo([]byte("PONG"), addr)
+		}
 	}
 }
 
 func (p *Peer) Broadcast(message Message) {
-	con, err := net.Dial("udp4", "255.255.255:8085")
+	addr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("255.255.255.255:%d", p.listenPort))
+	//laddr,_ := net.ResolveUDPAddr("udp4",fmt.Sprintf(":%d",p.listenPort))
+	_, err := p.bacstSoc.WriteTo([]byte("PING"), addr)
 	if err != nil {
 		log.Printf("Error while attempting to broadcast %s\n", err)
 		return
 	}
-	//defer con.Close()
-	json.NewEncoder(con).Encode(message)
-	//con.Write([]byte ("PING"))
+	log.Printf("Sent broadcast from %s", p.bacstSoc.LocalAddr())
 	buffer := make([]byte, 1024)
-	con.Read(buffer)
-	log.Printf("Sent broadcast %s",buffer)
+	n, a, _ := p.bacstSoc.ReadFrom(buffer)
+	log.Printf("Reply is %s from %s", buffer[:n], a)
+}
+
+func externalIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
+	}
+	return "", errors.New("not connected to network")
 }
