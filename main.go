@@ -2,10 +2,16 @@ package main
 
 import (
 	//"fmt"
-	p2p "./src/peer-to-peer"
+	blockchain "./src/blockchain-core"
+	"fmt"
 )
 
 func main() {
-	x := p2p.CreatePeer(9888)
-	x.Start()
+	bc := blockchain.BlockChain{}
+	bc.InitBlockChain()
+	for i := 0; i < 100; i++ {
+		bc.Add(fmt.Sprintf("%x", i))
+	}
+	bc.Print()
+	fmt.Println(bc.IsValid())
 }
