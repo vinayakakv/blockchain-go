@@ -12,9 +12,9 @@ type Block struct {
 	index        uint64
 	hash         string
 	previousHash string
-	timestamp    int64
+	timestamp    string
 	data         string
-	difficulty   int
+	difficulty   uint64
 	nonce        string
 }
 
@@ -22,7 +22,7 @@ func CreateBlock(oldBlock Block, data string) Block {
 	b := Block{
 		index:        oldBlock.index + 1,
 		previousHash: oldBlock.hash,
-		timestamp:    time.Now().Unix(),
+		timestamp:    time.Now().String(),
 		data:         data,
 		difficulty:   difficulty,
 	}
@@ -35,15 +35,15 @@ func (b Block) ToString() string {
 }
 
 func (b *Block) calculateHash() {
-	prefix := strings.Repeat("0",b.difficulty)
+	prefix := strings.Repeat("0", int(b.difficulty))
 	for i := 0; ; i++ {
-		b.nonce = fmt.Sprintf("%x",i)
+		b.nonce = fmt.Sprintf("%x", i)
 		record := b.ToString()
 		h := sha256.New()
 		h.Write([]byte(record))
 		hashed := h.Sum(nil)
 		b.hash = hex.EncodeToString(hashed)
-		if strings.HasPrefix(b.hash,prefix) {
+		if strings.HasPrefix(b.hash, prefix) {
 			fmt.Printf("Mined block %d : Hash %s\n", b.index, b.hash)
 			break
 		}
