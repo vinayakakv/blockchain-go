@@ -1,17 +1,11 @@
 package main
 
 import (
+	peer "./src/peer-to-peer"
 	//"fmt"
-	blockchain "./src/blockchain-core"
-	"fmt"
 )
 
 func main() {
-	bc := blockchain.BlockChain{}
-	bc.InitBlockChain()
-	for i := 0; i < 100; i++ {
-		bc.Add(fmt.Sprintf("%x", i))
-	}
-	bc.Print()
-	fmt.Println(bc.IsValid())
+	p := peer.CreatePeer(8090)
+	p.AddPeer("0.0.0.0:9000")
 }
