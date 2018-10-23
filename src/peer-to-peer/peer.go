@@ -7,16 +7,24 @@ import (
 	"log"
 	"encoding/json"
 	"errors"
+	"time"
+	"sync"
 )
 
-type callback func(conn net.Conn, arg interface{})
+const (
+	DIALTIMEOUT = time.Second * 5
+	RWTIMEOUT   = time.Second * 80
+)
+
+type callback func(p *Peer,conn net.Conn, arg interface{})
 
 //Represents a Node in P2P Network
 type Peer struct {
-	neighbours  []net.IP
 	listenPort  uint16
 	handlers    map[string]callback
 	connections chan net.Conn
+	sync.RWMutex
+	neighbours  map[string]time.Time //ip:port -> lastseen mapping
 }
 
 type Message struct {
@@ -27,7 +35,7 @@ type Message struct {
 // Creates a peer listening at specified port
 func CreatePeer(listenPort uint16) *Peer {
 	return &Peer{
-		neighbours: make([]net.IP, 0),
+		neighbours: make(map[string]time.Time),
 		listenPort: listenPort,
 		handlers:   make(map[string]callback),
 	}
@@ -66,17 +74,45 @@ func (p *Peer) Start() {
 	}
 }
 
-func (p *Peer) AddPeer(addr string) {
-	conn, err := net.Dial("tcp4", addr)
+//Adds a peer to neighbours after performing a handshake
+//addr is the ip:port combination of another peer
+// self -> Peer : PING
+// Peer -> self : PONG
+// self -> Peer : ACK
+// at the end, self is in the neighbour list of Peer and vice versa
+func (p *Peer) AddPeer(addr string) (e error) {
+	log.Printf("Trying to add Peer %s", addr)
+	conn, err := net.DialTimeout("tcp4", addr, DIALTIMEOUT)
 	if err != nil {
-		log.Printf("%s",err)
+		log.Printf("Error in AddPeer %s", err)
 		return
 	}
-	reply, _ := p.Send(Message{"PING", nil}, conn)
-	log.Printf("%s", reply)
+	conn.SetDeadline(time.Now().Add(RWTIMEOUT))
+	if err != nil {
+		log.Printf("Error in AddPeer %s", err)
+		return
+	}
+	reply, e := Send(Message{"PING", map[string]uint16{"PORT": p.listenPort}}, conn, true)
+	if e != nil {
+		log.Printf("Unable to PING %s : %s", addr, e)
+		return
+	}
+	if reply.Action == "PONG" {
+		_, e = Send(Message{"ACK", nil}, conn, false)
+		if e != nil {
+			log.Printf("Unable to PONG %s : %s", addr, e)
+			return
+		}
+		p.Lock()
+		p.neighbours[addr] = time.Now()
+		p.Unlock()
+		log.Printf("Successfully added peer %s", addr)
+	}
+	return
 }
 
 func (p *Peer) handleConn(client net.Conn) {
+	defer client.Close()
 	message := new(Message)
 	err := json.NewDecoder(client).Decode(message)
 	if err != nil {
@@ -89,15 +125,23 @@ func (p *Peer) handleConn(client net.Conn) {
 		log.Printf("No handler for %s defined. Ignoring request %v", message.Action, message)
 		return
 	}
-	handler(client, message.Data)
+	handler(p,client, message.Data)
 }
 
-func (p *Peer) Send(message Message, conn net.Conn) (reply Message, e error) {
+func Send(message Message, conn net.Conn, wantsReply bool) (reply Message,e error) {
 	if conn == nil {
 		e = errors.New("attempting to write to nil connection")
 		return
 	}
-	json.NewEncoder(conn).Encode(message)
-	json.NewDecoder(conn).Decode(reply)
+	e = json.NewEncoder(conn).Encode(message)
+	if e != nil {
+		return
+	}
+	if wantsReply {
+		e = json.NewDecoder(conn).Decode(&reply)
+		if e != nil {
+			return
+		}
+	}
 	return
 }
