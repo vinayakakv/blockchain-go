@@ -5,7 +5,6 @@ import (
 	"log"
 	"strings"
 	"fmt"
-	"time"
 )
 
 func HandlePING(p *Peer, conn net.Conn, data interface{}) {
@@ -26,7 +25,7 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 		ip := conn.RemoteAddr().String()
 		ip = strings.Split(ip, ":")[0]
 		ip = ip + fmt.Sprintf(":%v", body["port"])
-		p.neighbours[ip] = time.Now()
+		p.neighbours.Store(ip,true)
 		log.Printf("Added %s to peer list", ip)
 	}
 }

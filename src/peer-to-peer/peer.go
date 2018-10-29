@@ -16,15 +16,14 @@ const (
 	RWTIMEOUT   = time.Second * 80
 )
 
-type callback func(p *Peer,conn net.Conn, arg interface{})
+type callback func(p *Peer, conn net.Conn, arg interface{})
 
 //Represents a Node in P2P Network
 type Peer struct {
 	listenPort  uint16
 	handlers    map[string]callback
 	connections chan net.Conn
-	sync.RWMutex
-	neighbours  map[string]time.Time //ip:port -> lastseen mapping
+	neighbours  sync.Map //ip:port -> valid mapping
 }
 
 type Message struct {
@@ -35,7 +34,6 @@ type Message struct {
 // Creates a peer listening at specified port
 func CreatePeer(listenPort uint16) *Peer {
 	return &Peer{
-		neighbours: make(map[string]time.Time),
 		listenPort: listenPort,
 		handlers:   make(map[string]callback),
 	}
@@ -92,7 +90,7 @@ func (p *Peer) AddPeer(addr string) (e error) {
 		log.Printf("Error in AddPeer %s", err)
 		return
 	}
-	reply, e := Send(Message{"PING", map[string]uint16{"PORT": p.listenPort}}, conn, true)
+	reply, e := Send(Message{"PING", map[string]uint16{"port": p.listenPort}}, conn, true)
 	if e != nil {
 		log.Printf("Unable to PING %s : %s", addr, e)
 		return
@@ -103,9 +101,7 @@ func (p *Peer) AddPeer(addr string) (e error) {
 			log.Printf("Unable to PONG %s : %s", addr, e)
 			return
 		}
-		p.Lock()
-		p.neighbours[addr] = time.Now()
-		p.Unlock()
+		p.neighbours.Store(addr, true)
 		log.Printf("Successfully added peer %s", addr)
 	}
 	return
@@ -125,10 +121,30 @@ func (p *Peer) handleConn(client net.Conn) {
 		log.Printf("No handler for %s defined. Ignoring request %v", message.Action, message)
 		return
 	}
-	handler(p,client, message.Data)
+	handler(p, client, message.Data)
 }
 
-func Send(message Message, conn net.Conn, wantsReply bool) (reply Message,e error) {
+func (p *Peer) Broadcast(m Message) {
+	p.neighbours.Range(func(addr, valid interface{}) bool {
+		addrStr := addr.(string)
+		isValid := valid.(bool)
+		if isValid {
+			conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
+			if err != nil {
+				p.neighbours.Store(addr, false)
+				return true
+			}
+			conn.SetDeadline(time.Now().Add(RWTIMEOUT))
+			_, err = Send(m, conn, false)
+			if err != nil {
+				p.neighbours.Store(addr, false)
+				return true
+			}
+		}
+		return true
+	})
+}
+func Send(message Message, conn net.Conn, wantsReply bool) (reply Message, e error) {
 	if conn == nil {
 		e = errors.New("attempting to write to nil connection")
 		return
