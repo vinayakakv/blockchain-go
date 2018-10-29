@@ -6,23 +6,29 @@ import (
 	"strings"
 )
 
-const difficulty = 3
+var difficulty uint64 = 3
 
 type BlockChain struct {
 	chain                []Block
 	cumulativeDifficulty uint64
 }
 
+func SetDifficulty(n uint64)  {
+	difficulty = n
+}
+
 func (bc *BlockChain) InitBlockChain() {
-	bc.cumulativeDifficulty = difficulty
-	bc.chain = append(bc.chain, Block{
-		index:        0,
-		previousHash: "",
-		timestamp:    time.Now().String(),
-		data:         "Genesis Block",
-		difficulty:   difficulty,
-	})
-	bc.chain[0].calculateHash()
+	if len(bc.chain) == 0 {
+		bc.cumulativeDifficulty = difficulty
+		bc.chain = append(bc.chain, Block{
+			index:        0,
+			previousHash: "",
+			timestamp:    time.Now().String(),
+			data:         "Genesis Block",
+			difficulty:   difficulty,
+		})
+		bc.chain[0].calculateHash()
+	}
 }
 
 func (bc *BlockChain) Add(data string) {

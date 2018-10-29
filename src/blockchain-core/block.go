@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"log"
 )
 
 type Block struct {
@@ -36,7 +37,7 @@ func (b Block) ToString() string {
 
 func (b *Block) calculateHash() {
 	prefix := strings.Repeat("0", int(b.difficulty))
-	for i := 0; ; i++ {
+	for i := uint64(0); ; i++ {
 		b.nonce = fmt.Sprintf("%x", i)
 		record := b.ToString()
 		h := sha256.New()
@@ -44,7 +45,7 @@ func (b *Block) calculateHash() {
 		hashed := h.Sum(nil)
 		b.hash = hex.EncodeToString(hashed)
 		if strings.HasPrefix(b.hash, prefix) {
-			fmt.Printf("Mined block %d : Hash %s\n", b.index, b.hash)
+			log.Printf("Mined block %d : Hash %s\n", b.index, b.hash)
 			break
 		}
 	}
