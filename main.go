@@ -35,9 +35,7 @@ func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
 	return avgTime
 }
 
-func main() {
-	//avgTime := AnalyzeMining(6, 10)
-	//	fmt.Println("%v\n", avgTime)
+func RunTerminal(){
 	bc := blockchain.BlockChain{}
 	for ; ; {
 		list := promptui.Select{
@@ -116,4 +114,8 @@ func main() {
 		}
 		handlers[idx]()
 	}
+}
+
+func main() {
+	RunTerminal()
 }
