@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"bufio"
+	_ "github.com/c-bata/go-prompt"
 )
 
 func RandomString(len int) string {
