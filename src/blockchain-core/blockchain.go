@@ -1,65 +1,119 @@
 package blockchain_core
 
 import (
+	"sync"
 	"time"
-	"github.com/davecgh/go-spew/spew"
+	"log"
 	"strings"
+	"github.com/davecgh/go-spew/spew"
+	"fmt"
 )
 
 var difficulty uint64 = 3
 
 type BlockChain struct {
-	chain                []Block
-	cumulativeDifficulty uint64
+	mutex                sync.RWMutex
+	Chain                []*Block
+	CumulativeDifficulty uint64
+	dirty                bool
 }
 
-func SetDifficulty(n uint64)  {
+func SetDifficulty(n uint64) {
 	difficulty = n
 }
 
 func (bc *BlockChain) InitBlockChain() {
-	if len(bc.chain) == 0 {
-		bc.cumulativeDifficulty = difficulty
-		bc.chain = append(bc.chain, Block{
-			index:        0,
-			previousHash: "",
-			timestamp:    time.Now().String(),
-			data:         "Genesis Block",
-			difficulty:   difficulty,
+	bc.Lock()
+	defer bc.Unlock()
+	if len(bc.Chain) == 0 {
+		bc.CumulativeDifficulty = difficulty
+		bc.Chain = append(bc.Chain, &Block{
+			Index:        0,
+			PreviousHash: "",
+			Timestamp:    time.Now().String(),
+			Data:         "Genesis Block",
+			Difficulty:   difficulty,
 		})
-		bc.chain[0].calculateHash()
+		bc.Chain[0].Mine()
 	}
 }
 
 func (bc *BlockChain) Add(data string) {
-	b := CreateBlock(bc.chain[len(bc.chain)-1], data)
-	bc.chain = append(bc.chain, b)
-	bc.cumulativeDifficulty += b.difficulty
+	bc.Lock()
+	defer bc.Unlock()
+	b := CreateBlock(bc.Chain[len(bc.Chain)-1], data)
+	bc.dirty = true
+	bc.Chain = append(bc.Chain, b)
+	bc.CumulativeDifficulty += b.Difficulty
 }
 
 func (bc *BlockChain) Replace(other BlockChain) {
-	if other.IsValid() && other.cumulativeDifficulty > bc.cumulativeDifficulty {
-		bc.chain = other.chain
+	bc.Lock()
+	defer bc.Unlock()
+	if !bc.dirty && other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {
+		bc.Chain = other.Chain
+		bc.CumulativeDifficulty = other.CumulativeDifficulty
+		log.Printf("Blockchain replaced")
 	}
 }
 
 func (bc *BlockChain) IsValid() bool {
-	for i := 0; i < len(bc.chain)-1; i++ {
-		current := bc.chain[i]
-		next := bc.chain[i+1]
-		if next.index != current.index+1 || next.previousHash != current.hash || !strings.HasPrefix(current.hash, strings.Repeat("0", int(current.difficulty))) {
+	bc.RLock()
+	defer bc.RUnlock()
+	for i := 0; i < len(bc.Chain)-1; i++ {
+		current := bc.Chain[i]
+		next := bc.Chain[i+1]
+		if next.Index != current.Index+1 ||
+			next.PreviousHash != current.Hash ||
+			current.CalculateHash() != current.Hash ||
+			!strings.HasPrefix(current.Hash, strings.Repeat("0", int(current.Difficulty))) {
 			return false
 		}
 	}
-	last := bc.chain[len(bc.chain)-1]
-	if !strings.HasPrefix(last.hash, strings.Repeat("0", int(last.difficulty))) {
+	last := bc.Chain[len(bc.Chain)-1]
+	if last.CalculateHash() != last.Hash ||
+		!strings.HasPrefix(last.Hash, strings.Repeat("0", int(last.Difficulty))) {
 		return false
 	}
 	return true
 }
 
-func (bc *BlockChain) Print() {
-	for _, block := range bc.chain {
+func (bc *BlockChain) ClearDirty() {
+	bc.Lock()
+	defer bc.Unlock()
+	bc.dirty = false
+}
+
+func (bc *BlockChain) Dump() {
+	bc.RLock()
+	defer bc.RUnlock()
+	for _, block := range bc.Chain {
 		spew.Dump(block)
 	}
+}
+
+func (bc *BlockChain) Print() {
+	bc.RLock()
+	defer bc.RUnlock()
+	str := ""
+	for _, block := range bc.Chain {
+		str += " " + block.Data
+	}
+	fmt.Print(str)
+}
+
+func (bc *BlockChain) Lock() {
+	bc.mutex.Lock()
+}
+
+func (bc *BlockChain) RLock() {
+	bc.mutex.RLock()
+}
+
+func (bc *BlockChain) Unlock() {
+	bc.mutex.Unlock()
+}
+
+func (bc *BlockChain) RUnlock() {
+	bc.mutex.RUnlock()
 }
