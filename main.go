@@ -2,12 +2,15 @@ package main
 
 import (
 	blockchain "./src/blockchain-core"
+	peer "./src/peer-to-peer"
 	"math/rand"
 	"time"
 	"fmt"
 	"github.com/manifoldco/promptui"
 	"strconv"
 	"os"
+	"strings"
+	"bufio"
 )
 
 func RandomString(len int) string {
@@ -35,13 +38,12 @@ func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
 	return avgTime
 }
 
-func RunTerminal(){
-	bc := blockchain.BlockChain{}
+func RunTerminal(p *peer.Peer) {
+	bc := p.GetBlockChain()
 	for ; ; {
 		list := promptui.Select{
 			Label: "Select Operation",
 			Items: []string{
-				"Create Blockchain",
 				"Set Difficulty",
 				"Insert Block",
 				"View Blockchain",
@@ -51,10 +53,6 @@ func RunTerminal(){
 			//Templates: &templates,
 		}
 		handlers := []func(){
-			func() {
-				fmt.Printf("Creating Blockchain\n", )
-				bc.InitBlockChain()
-			},
 			func() {
 				prompt := promptui.Prompt{Label: "Difficulty"}
 				data, err := prompt.Run()
@@ -116,6 +114,38 @@ func RunTerminal(){
 	}
 }
 
+func RunDevelTerminal(p *peer.Peer) {
+	for {
+		fmt.Printf(">>")
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		parts := strings.Split(input, " ")
+		for i := 0; i < len(parts); i++ {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		switch parts[0] {
+		case "createPeer":
+			port, _ := strconv.Atoi(parts[1])
+			fmt.Printf("%v\n", uint16(port))
+			p = peer.CreatePeer(uint16(port))
+			p.AddHandler("PING", peer.HandlePING)
+			p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+			go p.Start()
+		case "addPeer":
+			p.AddPeer(parts[1])
+		case "exit":
+			return
+		case "addBlock":
+			p.GetBlockChain().Add(parts[1])
+		case "checkValid":
+			fmt.Printf("%v", p.GetBlockChain().IsValid())
+		default:
+			fmt.Printf("Unknown command %s", parts[0])
+		}
+	}
+}
+
 func main() {
-	RunTerminal()
+	p := peer.Peer{}
+	RunDevelTerminal(&p)
 }
