@@ -9,6 +9,9 @@ import (
 	"errors"
 	"time"
 	"sync"
+	blockchain "../blockchain-core"
+	"encoding/gob"
+	"bytes"
 )
 
 const (
@@ -24,6 +27,7 @@ type Peer struct {
 	handlers    map[string]callback
 	connections chan net.Conn
 	neighbours  sync.Map //ip:port -> valid mapping
+	blockchain  *blockchain.BlockChain
 }
 
 type Message struct {
@@ -36,7 +40,11 @@ func CreatePeer(listenPort uint16) *Peer {
 	return &Peer{
 		listenPort: listenPort,
 		handlers:   make(map[string]callback),
+		blockchain: new(blockchain.BlockChain),
 	}
+}
+func (p *Peer) GetBlockChain() (*blockchain.BlockChain) {
+	return p.blockchain
 }
 
 // Adds handler associated with particular message
@@ -47,6 +55,7 @@ func (p *Peer) AddHandler(key string, action callback) {
 // Initiates the peer. Peer starts listening for incoming connections
 func (p *Peer) init() {
 	ln, err := net.Listen("tcp4", fmt.Sprintf(":%d", p.listenPort))
+	p.blockchain.InitBlockChain()
 	if err != nil {
 		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
 	}
@@ -67,6 +76,7 @@ func (p *Peer) init() {
 // Starts the peer node, Incoming connections are handled
 func (p *Peer) Start() {
 	p.init()
+	go p.BroadcastBlockChain()
 	for {
 		go p.handleConn(<-p.connections)
 	}
@@ -80,7 +90,7 @@ func (p *Peer) Start() {
 // at the end, self is in the neighbour list of Peer and vice versa
 func (p *Peer) AddPeer(addr string) (e error) {
 	log.Printf("Trying to add Peer %s", addr)
-	conn, err := net.DialTimeout("tcp4", addr, DIALTIMEOUT)
+	conn, err := net.DialTimeout("tcp", addr, DIALTIMEOUT)
 	if err != nil {
 		log.Printf("Error in AddPeer %s", err)
 		return
@@ -124,26 +134,42 @@ func (p *Peer) handleConn(client net.Conn) {
 	handler(p, client, message.Data)
 }
 
-func (p *Peer) Broadcast(m Message) {
-	p.neighbours.Range(func(addr, valid interface{}) bool {
-		addrStr := addr.(string)
-		isValid := valid.(bool)
-		if isValid {
-			conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
-			if err != nil {
-				p.neighbours.Store(addr, false)
-				return true
-			}
-			conn.SetDeadline(time.Now().Add(RWTIMEOUT))
-			_, err = Send(m, conn, false)
-			if err != nil {
-				p.neighbours.Store(addr, false)
-				return true
-			}
+func (p *Peer) BroadcastBlockChain() {
+	for {
+		time.Sleep(10 * time.Second)
+		var data bytes.Buffer
+		p.blockchain.ClearDirty()
+		p.blockchain.RLock()
+		err := gob.NewEncoder(&data).Encode(p.blockchain)
+		p.blockchain.RUnlock()
+		if err != nil {
+			log.Printf("Error while gobbing %s", err)
+			return
 		}
-		return true
-	})
+		m := Message{Action: "BLOCKCHAINBCAST", Data: data.Bytes()}
+		p.neighbours.Range(func(addr, valid interface{}) bool {
+			addrStr := addr.(string)
+			isValid := valid.(bool)
+			if isValid {
+				conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
+				if err != nil {
+					p.neighbours.Store(addr, false)
+					log.Printf("Timeout error while bcast dial to %s :  %s",addrStr,err)
+					return true
+				}
+				conn.SetDeadline(time.Now().Add(RWTIMEOUT))
+				_, err = Send(m, conn, false)
+				if err != nil {
+					p.neighbours.Store(addr, false)
+					log.Printf("Send error while bcast dial to %s : %s",addrStr,err)
+					return true
+				}
+			}
+			return true
+		})
+	}
 }
+
 func Send(message Message, conn net.Conn, wantsReply bool) (reply Message, e error) {
 	if conn == nil {
 		e = errors.New("attempting to write to nil connection")
