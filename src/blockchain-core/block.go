@@ -10,43 +10,47 @@ import (
 )
 
 type Block struct {
-	index        uint64
-	hash         string
-	previousHash string
-	timestamp    string
-	data         string
-	difficulty   uint64
-	nonce        string
+	Index        uint64
+	Hash         string
+	PreviousHash string
+	Timestamp    string
+	Data         string
+	Difficulty   uint64
+	Nonce        string
 }
 
-func CreateBlock(oldBlock Block, data string) Block {
-	b := Block{
-		index:        oldBlock.index + 1,
-		previousHash: oldBlock.hash,
-		timestamp:    time.Now().String(),
-		data:         data,
-		difficulty:   difficulty,
+func CreateBlock(oldBlock *Block, data string) *Block {
+	b := &Block{
+		Index:        oldBlock.Index + 1,
+		PreviousHash: oldBlock.Hash,
+		Timestamp:    time.Now().String(),
+		Data:         data,
+		Difficulty:   difficulty,
 	}
-	b.calculateHash()
+	b.Mine()
 	return b
 }
 
-func (b Block) ToString() string {
-	return fmt.Sprintf("%d%s%s%d%s%d%s", b.index, b.hash, b.previousHash, b.timestamp, b.data, b.difficulty, b.nonce)
+func (b *Block) ToString() string {
+	return fmt.Sprintf("%d%s%d%s%d%s", b.Index, b.PreviousHash, b.Timestamp, b.Data, b.Difficulty, b.Nonce)
 }
 
-func (b *Block) calculateHash() {
-	prefix := strings.Repeat("0", int(b.difficulty))
+func (b *Block) Mine() {
+	prefix := strings.Repeat("0", int(b.Difficulty))
 	for i := uint64(0); ; i++ {
-		b.nonce = fmt.Sprintf("%x", i)
-		record := b.ToString()
-		h := sha256.New()
-		h.Write([]byte(record))
-		hashed := h.Sum(nil)
-		b.hash = hex.EncodeToString(hashed)
-		if strings.HasPrefix(b.hash, prefix) {
-			log.Printf("Mined block %d : Hash %s\n", b.index, b.hash)
+		b.Nonce = fmt.Sprintf("%x", i)
+		b.Hash = b.CalculateHash()
+		if strings.HasPrefix(b.Hash, prefix) {
+			log.Printf("Mined block %d : Hash %s\n", b.Index, b.Hash)
 			break
 		}
 	}
+}
+
+func (b *Block) CalculateHash() string {
+	record := b.ToString()
+	h := sha256.New()
+	h.Write([]byte(record))
+	hashed := h.Sum(nil)
+	return hex.EncodeToString(hashed)
 }
