@@ -5,6 +5,10 @@ import (
 	"log"
 	"strings"
 	"fmt"
+	"bytes"
+	"encoding/gob"
+	blockchain "../blockchain-core"
+	"encoding/base64"
 )
 
 func HandlePING(p *Peer, conn net.Conn, data interface{}) {
@@ -25,7 +29,25 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 		ip := conn.RemoteAddr().String()
 		ip = strings.Split(ip, ":")[0]
 		ip = ip + fmt.Sprintf(":%v", body["port"])
-		p.neighbours.Store(ip,true)
+		p.neighbours.Store(ip, true)
 		log.Printf("Added %s to peer list", ip)
 	}
+}
+
+func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
+	buf := new(bytes.Buffer)
+	byteData, err := base64.StdEncoding.DecodeString(data.(string))
+	if err != nil {
+		log.Printf("Error while base64 decode : %s", err)
+		return
+	}
+	buf.Write(byteData)
+	bc := blockchain.BlockChain{}
+	err = gob.NewDecoder(buf).Decode(&bc)
+	if err != nil {
+		log.Printf("Error while ungobbing %s", err)
+		return
+	}
+	p.blockchain.Replace(bc)
+	p.blockchain.Print()
 }
