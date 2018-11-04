@@ -24,7 +24,7 @@ func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
 	bc.InitBlockChain()
 	avgTime := make([]uint64, maxDifficulty)
 	for i := uint64(1); i <= maxDifficulty; i++ {
-		blockchain.SetDifficulty(i)
+		bc.SetDifficulty(i)
 		fmt.Printf("Current Difficulty is %d\n", i)
 		for j := uint64(0); j < insertCount; j++ {
 			start := time.Now()
@@ -36,14 +36,13 @@ func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
 	return avgTime
 }
 
-
 var p = &peer.Peer{}
 
 var suggestions = []prompt.Suggest{
-	{Text: "createPeer", Description: "Creates the Peer listening on specified port"},
-	{Text: "addPeer", Description: "Adds Peer specified by address to neighbour list"},
+	{Text: "init", Description: "Creates the Peer listening on specified port"},
+	{Text: "add", Description: "Adds Peer specified by address to neighbour list"},
 	{Text: "exit", Description: "Quits the program"},
-	{Text: "addBlock", Description: "Inserts a block into Blockchain"},
+	{Text: "insert", Description: "Inserts a block into Blockchain"},
 	{Text: "print", Description: "Prints the Blockchain"},
 }
 
@@ -51,17 +50,17 @@ func executor(input string) {
 	input = strings.TrimSpace(input)
 	parts := strings.Split(input, " ")
 	switch parts[0] {
-	case "createPeer":
+	case "init":
 		port, _ := strconv.Atoi(parts[1])
 		p = peer.CreatePeer(uint16(port))
 		p.AddHandler("PING", peer.HandlePING)
 		p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
 		go p.Start()
-	case "addPeer":
+	case "add":
 		p.AddPeer(parts[1])
 	case "exit":
 		return
-	case "addBlock":
+	case "insert":
 		p.GetBlockChain().Add(parts[1])
 	case "print":
 		p.GetBlockChain().Print()
@@ -70,10 +69,9 @@ func executor(input string) {
 	}
 }
 
-
 func completer(in prompt.Document) []prompt.Suggest {
 	w := in.GetWordBeforeCursor()
-	if w == "" {
+	if len(strings.Split(in.TextBeforeCursor(), " ")) > 1 || w == "" {
 		return []prompt.Suggest{}
 	}
 	return prompt.FilterHasPrefix(suggestions, w, true)
@@ -83,7 +81,7 @@ func RunDevelTerminal() {
 	p := prompt.New(
 		executor,
 		completer,
-		prompt.OptionPrefix("> "),
+		prompt.OptionPrefix(">>"),
 		prompt.OptionTitle("bc-prompt"),
 	)
 	p.Run()
