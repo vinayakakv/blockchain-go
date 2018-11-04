@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"github.com/c-bata/go-prompt"
+	"os"
 )
 
 func RandomString(len int) string {
@@ -59,7 +60,7 @@ func executor(input string) {
 	case "add":
 		p.AddPeer(parts[1])
 	case "exit":
-		return
+		os.Exit(0)
 	case "insert":
 		p.GetBlockChain().Add(parts[1])
 	case "print":
