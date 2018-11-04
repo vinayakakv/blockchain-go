@@ -3,7 +3,7 @@ package blockchain_core
 import (
 	"sync"
 	"time"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"strings"
 	"github.com/davecgh/go-spew/spew"
 	"fmt"
@@ -95,10 +95,11 @@ func (bc *BlockChain) Dump() {
 func (bc *BlockChain) Print() {
 	bc.RLock()
 	defer bc.RUnlock()
-	str := ""
+	str := "["
 	for _, block := range bc.Chain {
-		str += " " + block.Data
+		str += block.Data + ","
 	}
+	str += "]\n"
 	fmt.Print(str)
 }
 

@@ -2,7 +2,7 @@ package peer_to_peer
 
 import (
 	"net"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"strings"
 	"fmt"
 	"bytes"

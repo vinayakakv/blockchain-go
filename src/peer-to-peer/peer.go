@@ -4,7 +4,7 @@ package peer_to_peer
 import (
 	"net"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"encoding/json"
 	"errors"
 	"time"

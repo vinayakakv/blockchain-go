@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
-	"log"
+	log "github.com/sirupsen/logrus"
 )
 
 type Block struct {
