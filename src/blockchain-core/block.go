@@ -7,23 +7,36 @@ import (
 	"encoding/hex"
 	"strings"
 	log "github.com/sirupsen/logrus"
+	"os"
 )
+
+func init() {
+	// Log as JSON instead of the default ASCII formatter.
+	//log.SetFormatter(&log.JSONFormatter{})
+
+	// Output to stdout instead of the default stderr
+	// Can be any io.Writer, see below for File example
+	log.SetOutput(os.Stdout)
+
+	// Only log the warning severity or above.
+	log.SetLevel(log.TraceLevel)
+}
 
 type Block struct {
 	Index        uint64
 	Hash         string
 	PreviousHash string
-	Timestamp    string
+	Timestamp    int64
 	Data         string
 	Difficulty   uint64
 	Nonce        string
 }
 
-func CreateBlock(oldBlock *Block, data string) *Block {
+func CreateBlock(oldBlock *Block, data string, difficulty uint64) *Block {
 	b := &Block{
 		Index:        oldBlock.Index + 1,
 		PreviousHash: oldBlock.Hash,
-		Timestamp:    time.Now().String(),
+		Timestamp:    time.Now().Unix(),
 		Data:         data,
 		Difficulty:   difficulty,
 	}
@@ -41,7 +54,11 @@ func (b *Block) Mine() {
 		b.Nonce = fmt.Sprintf("%x", i)
 		b.Hash = b.CalculateHash()
 		if strings.HasPrefix(b.Hash, prefix) {
-			log.Printf("Mined block %d : Hash %s\n", b.Index, b.Hash)
+			log.WithFields(log.Fields{
+				"index" : b.Index,
+				"hash" : b.Hash,
+				"difficulty" : b.Difficulty,
+			}).Trace("Mined block")
 			break
 		}
 	}

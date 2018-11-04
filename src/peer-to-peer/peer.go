@@ -12,7 +12,20 @@ import (
 	blockchain "../blockchain-core"
 	"encoding/gob"
 	"bytes"
+	"os"
 )
+
+func init() {
+	// Log as JSON instead of the default ASCII formatter.
+	//log.SetFormatter(&log.JSONFormatter{})
+
+	// Output to stdout instead of the default stderr
+	// Can be any io.Writer, see below for File example
+	log.SetOutput(os.Stdout)
+
+	// Only log the warning severity or above.
+	log.SetLevel(log.TraceLevel)
+}
 
 const (
 	DIALTIMEOUT = time.Second * 5
@@ -57,17 +70,27 @@ func (p *Peer) init() {
 	ln, err := net.Listen("tcp4", fmt.Sprintf(":%d", p.listenPort))
 	p.blockchain.InitBlockChain()
 	if err != nil {
-		log.Panicf("Error while attempting to listen at Port %d : %s\n", p.listenPort, err)
+		log.WithFields(log.Fields{
+			"port": p.listenPort,
+			"what": err,
+		}).Panic("Error while attempting to listen")
 	}
-	log.Printf("Listening at tcp://%s", ln.Addr())
+	log.WithFields(log.Fields{
+		"address": fmt.Sprintf("tcp://%s", ln.Addr()),
+	}).Info("Started Listening")
 	p.connections = make(chan net.Conn)
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				log.Printf("Error while attempting to accept connection %s\n", err)
+				log.WithFields(log.Fields{
+					"what": err,
+				}).Errorf("Error while attempting to accept connection")
 			}
-			log.Printf("Connection: %s <- %s \n", conn.LocalAddr(), conn.RemoteAddr())
+			log.WithFields(log.Fields{
+				"from": conn.RemoteAddr(),
+				"to":   conn.LocalAddr(),
+			}).Trace("New Connection")
 			p.connections <- conn
 		}
 	}()
@@ -89,30 +112,44 @@ func (p *Peer) Start() {
 // self -> Peer : ACK
 // at the end, self is in the neighbour list of Peer and vice versa
 func (p *Peer) AddPeer(addr string) (e error) {
-	log.Printf("Trying to add Peer %s", addr)
+	log.WithFields(log.Fields{
+		"addr": addr,
+	}).Trace("Trying to add Peer")
 	conn, err := net.DialTimeout("tcp", addr, DIALTIMEOUT)
 	if err != nil {
-		log.Printf("Error in AddPeer %s", err)
+		log.WithFields(log.Fields{
+			"what": err,
+		}).Error("Error in AddPeer")
 		return
 	}
-	conn.SetDeadline(time.Now().Add(RWTIMEOUT))
+	err = conn.SetDeadline(time.Now().Add(RWTIMEOUT))
 	if err != nil {
-		log.Printf("Error in AddPeer %s", err)
+		log.WithFields(log.Fields{
+			"what": err,
+		}).Error("Error in AddPeer")
 		return
 	}
 	reply, e := Send(Message{"PING", map[string]uint16{"port": p.listenPort}}, conn, true)
 	if e != nil {
-		log.Printf("Unable to PING %s : %s", addr, e)
+		log.WithFields(log.Fields{
+			"addr": addr,
+			"what": e,
+		}).Debugf("Unable to PING")
 		return
 	}
 	if reply.Action == "PONG" {
 		_, e = Send(Message{"ACK", nil}, conn, false)
 		if e != nil {
-			log.Printf("Unable to PONG %s : %s", addr, e)
+			log.WithFields(log.Fields{
+				"addr": addr,
+				"what": e,
+			}).Debugf("Unable to PONG")
 			return
 		}
 		p.neighbours.Store(addr, true)
-		log.Printf("Successfully added peer %s", addr)
+		log.WithFields(log.Fields{
+			"addr": addr,
+		}).Info("Successfully added peer")
 	}
 	return
 }
@@ -122,13 +159,22 @@ func (p *Peer) handleConn(client net.Conn) {
 	message := new(Message)
 	err := json.NewDecoder(client).Decode(message)
 	if err != nil {
-		log.Printf("Error while parsing JSON from %s. Error %s\n", client.RemoteAddr(), err)
+		log.WithFields(log.Fields{
+			"from": client.RemoteAddr(),
+			"what": err,
+		}).Error("Error while parsing JSON")
 		return
 	}
-	log.Printf("Got message %s from %s\n", message.Action, client.RemoteAddr())
+	log.WithFields(log.Fields{
+		"action" : message.Action,
+		"from" :client.RemoteAddr(),
+	}).Trace("Got a message")
 	handler, exist := p.handlers[message.Action]
 	if !exist {
-		log.Printf("No handler for %s defined. Ignoring request %v", message.Action, message)
+		log.WithFields(log.Fields{
+			"for" : message.Action,
+			"request" : message,
+		}).Warn("No handler defined")
 		return
 	}
 	handler(p, client, message.Data)
@@ -143,7 +189,9 @@ func (p *Peer) BroadcastBlockChain() {
 		err := gob.NewEncoder(&data).Encode(p.blockchain)
 		p.blockchain.RUnlock()
 		if err != nil {
-			log.Printf("Error while gobbing %s", err)
+			log.WithFields(log.Fields{
+				"what" : err,
+			}).Error("Error while gobbing")
 			return
 		}
 		m := Message{Action: "BLOCKCHAINBCAST", Data: data.Bytes()}
@@ -154,14 +202,20 @@ func (p *Peer) BroadcastBlockChain() {
 				conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
 				if err != nil {
 					p.neighbours.Store(addr, false)
-					log.Printf("Timeout error while bcast dial to %s :  %s",addrStr,err)
+					log.WithFields(log.Fields{
+						"to" : addrStr,
+						"what" : err,
+					}).Error("Timeout error while Broadcasting")
 					return true
 				}
 				conn.SetDeadline(time.Now().Add(RWTIMEOUT))
 				_, err = Send(m, conn, false)
 				if err != nil {
 					p.neighbours.Store(addr, false)
-					log.Printf("Send error while bcast dial to %s : %s",addrStr,err)
+					log.WithFields(log.Fields{
+						"to" : addrStr,
+						"what" : err,
+					}).Error("Send error while Broadcasting")
 					return true
 				}
 			}

@@ -9,28 +9,63 @@ import (
 	"fmt"
 )
 
-var difficulty uint64 = 3
+const (
+	BLOCK_GENERATION_INTERVAL      = 10 * time.Second
+	DIFFICULTY_ADJUSTMENT_INTERVAL = 10
+)
 
 type BlockChain struct {
 	mutex                sync.RWMutex
 	Chain                []*Block
 	CumulativeDifficulty uint64
 	dirty                bool
+	Difficulty           uint64
 }
 
-func SetDifficulty(n uint64) {
-	difficulty = n
+func (bc *BlockChain) GetDifficulty() uint64 {
+	latestBlock := bc.Chain[len(bc.Chain)-1]
+	if latestBlock.Index%DIFFICULTY_ADJUSTMENT_INTERVAL == 0 && latestBlock.Index != 0 {
+		return bc.GetAdjustedDifficulty()
+	} else {
+		return latestBlock.Difficulty
+	}
+}
+
+func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
+	prevAdjustmentBlock := bc.Chain[len(bc.Chain)-DIFFICULTY_ADJUSTMENT_INTERVAL]
+	latestBlock := bc.Chain[len(bc.Chain)-1]
+	timeExpected := BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL
+	t1 := time.Unix(prevAdjustmentBlock.Timestamp, 0)
+	t2 := time.Unix(latestBlock.Timestamp, 0)
+	timeTaken := t2.Sub(t1)
+	var newDifficulty uint64
+	if timeTaken < timeExpected/2 {
+		newDifficulty = prevAdjustmentBlock.Difficulty + 1
+		log.WithFields(log.Fields{"difficulty": newDifficulty}).Infof("Increased Difficulty")
+	} else if timeTaken > timeExpected*2 {
+		newDifficulty = prevAdjustmentBlock.Difficulty - 1
+		log.WithFields(log.Fields{"difficulty": newDifficulty}).Infof("Decreased Difficulty")
+	} else {
+		newDifficulty = prevAdjustmentBlock.Difficulty
+	}
+	bc.Difficulty = newDifficulty
+	return newDifficulty
+}
+
+func (bc *BlockChain) SetDifficulty(n uint64) {
+	bc.Difficulty = n
 }
 
 func (bc *BlockChain) InitBlockChain() {
 	bc.Lock()
 	defer bc.Unlock()
 	if len(bc.Chain) == 0 {
+		difficulty := uint64(3)
 		bc.CumulativeDifficulty = difficulty
 		bc.Chain = append(bc.Chain, &Block{
 			Index:        0,
 			PreviousHash: "",
-			Timestamp:    time.Now().String(),
+			Timestamp:    time.Now().Unix(),
 			Data:         "Genesis Block",
 			Difficulty:   difficulty,
 		})
@@ -41,10 +76,10 @@ func (bc *BlockChain) InitBlockChain() {
 func (bc *BlockChain) Add(data string) {
 	bc.Lock()
 	defer bc.Unlock()
-	b := CreateBlock(bc.Chain[len(bc.Chain)-1], data)
+	b := CreateBlock(bc.Chain[len(bc.Chain)-1], data, bc.GetDifficulty())
 	bc.dirty = true
 	bc.Chain = append(bc.Chain, b)
-	bc.CumulativeDifficulty += b.Difficulty
+	bc.CumulativeDifficulty += 1 << b.Difficulty
 }
 
 func (bc *BlockChain) Replace(other BlockChain) {
@@ -53,7 +88,7 @@ func (bc *BlockChain) Replace(other BlockChain) {
 	if !bc.dirty && other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {
 		bc.Chain = other.Chain
 		bc.CumulativeDifficulty = other.CumulativeDifficulty
-		log.Printf("Blockchain replaced")
+		log.Info("Blockchain replaced")
 	}
 }
 
