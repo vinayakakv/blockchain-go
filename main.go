@@ -6,12 +6,9 @@ import (
 	"math/rand"
 	"time"
 	"fmt"
-	"github.com/manifoldco/promptui"
 	"strconv"
-	"os"
 	"strings"
-	"bufio"
-	_ "github.com/c-bata/go-prompt"
+	"github.com/c-bata/go-prompt"
 )
 
 func RandomString(len int) string {
@@ -39,114 +36,59 @@ func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
 	return avgTime
 }
 
-func RunTerminal(p *peer.Peer) {
-	bc := p.GetBlockChain()
-	for ; ; {
-		list := promptui.Select{
-			Label: "Select Operation",
-			Items: []string{
-				"Set Difficulty",
-				"Insert Block",
-				"View Blockchain",
-				"Analyze Mining",
-				"Exit",
-			},
-			//Templates: &templates,
-		}
-		handlers := []func(){
-			func() {
-				prompt := promptui.Prompt{Label: "Difficulty"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				difficulty, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				blockchain.SetDifficulty(uint64(difficulty))
-			},
-			func() {
-				prompt := promptui.Prompt{Label: "String Data"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				bc.Add(data)
-				fmt.Printf("Data Successfully Inserted\n")
-			},
-			func() {
-				bc.Print()
-			},
-			func() {
-				prompt := promptui.Prompt{Label: "maxDifficulty"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				maxDifficulty, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				prompt = promptui.Prompt{Label: "maxRuns"}
-				data, err = prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				maxRuns, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				res := AnalyzeMining(uint64(maxDifficulty), uint64(maxRuns))
-				fmt.Printf("%v\n", res)
-			},
-			func() {
-				os.Exit(0)
-			},
-		}
-		idx, _, err := list.Run()
-		if err != nil {
-			panic(err)
-		}
-		handlers[idx]()
+
+var p = &peer.Peer{}
+
+var suggestions = []prompt.Suggest{
+	{Text: "createPeer", Description: "Creates the Peer listening on specified port"},
+	{Text: "addPeer", Description: "Adds Peer specified by address to neighbour list"},
+	{Text: "exit", Description: "Quits the program"},
+	{Text: "addBlock", Description: "Inserts a block into Blockchain"},
+	{Text: "print", Description: "Prints the Blockchain"},
+}
+
+func executor(input string) {
+	input = strings.TrimSpace(input)
+	parts := strings.Split(input, " ")
+	switch parts[0] {
+	case "createPeer":
+		port, _ := strconv.Atoi(parts[1])
+		p = peer.CreatePeer(uint16(port))
+		p.AddHandler("PING", peer.HandlePING)
+		p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+		go p.Start()
+	case "addPeer":
+		p.AddPeer(parts[1])
+	case "exit":
+		return
+	case "addBlock":
+		p.GetBlockChain().Add(parts[1])
+	case "print":
+		p.GetBlockChain().Print()
+	default:
+		fmt.Printf("Unknown command %s\n", parts[0])
 	}
 }
 
-func RunDevelTerminal(p *peer.Peer) {
-	for {
-		fmt.Printf(">>")
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		parts := strings.Split(input, " ")
-		for i := 0; i < len(parts); i++ {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		switch parts[0] {
-		case "createPeer":
-			port, _ := strconv.Atoi(parts[1])
-			fmt.Printf("%v\n", uint16(port))
-			p = peer.CreatePeer(uint16(port))
-			p.AddHandler("PING", peer.HandlePING)
-			p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
-			go p.Start()
-		case "addPeer":
-			p.AddPeer(parts[1])
-		case "exit":
-			return
-		case "addBlock":
-			p.GetBlockChain().Add(parts[1])
-		case "checkValid":
-			fmt.Printf("%v", p.GetBlockChain().IsValid())
-		default:
-			fmt.Printf("Unknown command %s", parts[0])
-		}
+
+func completer(in prompt.Document) []prompt.Suggest {
+	w := in.GetWordBeforeCursor()
+	if w == "" {
+		return []prompt.Suggest{}
 	}
+	return prompt.FilterHasPrefix(suggestions, w, true)
+}
+
+func RunDevelTerminal() {
+	p := prompt.New(
+		executor,
+		completer,
+		prompt.OptionPrefix("> "),
+		prompt.OptionTitle("bc-prompt"),
+	)
+	p.Run()
 }
 
 func main() {
-	p := peer.Peer{}
-	RunDevelTerminal(&p)
+	RunDevelTerminal()
 }
