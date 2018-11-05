@@ -1,16 +1,23 @@
 package main
 
 import (
-	blockchain "./src/blockchain-core"
 	peer "./src/peer-to-peer"
 	"math/rand"
-	"time"
 	"fmt"
 	"strconv"
 	"strings"
 	"github.com/c-bata/go-prompt"
 	"os"
+	log "github.com/sirupsen/logrus"
+	"sync"
+	"time"
 )
+
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
+}
 
 func RandomString(len int) string {
 	bytes := make([]byte, len)
@@ -18,23 +25,6 @@ func RandomString(len int) string {
 		bytes[i] = byte(65 + rand.Intn(25)) //A=65 and Z = 65+25
 	}
 	return string(bytes)
-}
-
-func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
-	bc := blockchain.BlockChain{}
-	bc.InitBlockChain()
-	avgTime := make([]uint64, maxDifficulty)
-	for i := uint64(1); i <= maxDifficulty; i++ {
-		bc.SetDifficulty(i)
-		fmt.Printf("Current Difficulty is %d\n", i)
-		for j := uint64(0); j < insertCount; j++ {
-			start := time.Now()
-			bc.Add(RandomString(10))
-			avgTime[i-1] += uint64(time.Since(start) / time.Microsecond)
-		}
-		avgTime[i-1] /= insertCount
-	}
-	return avgTime
 }
 
 var p = &peer.Peer{}
@@ -88,6 +78,44 @@ func RunDevelTerminal() {
 	p.Run()
 }
 
+func Simulate(peerCount int, basePort uint16, insertCount int) {
+	// Phase 1 : Initialization
+	peers := make([]*peer.Peer, peerCount)
+	var wg sync.WaitGroup
+	wg.Add(peerCount)
+	for i := 0; i < peerCount; i++ {
+		go func(i int) {
+			defer wg.Done()
+			peers[i] = peer.CreatePeer(basePort + uint16(i))
+			peers[i].AddHandler("PING", peer.HandlePING)
+			peers[i].AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+			go peers[i].Start()
+		}(i)
+	}
+	wg.Wait()
+	for i := 0; i < peerCount; i++ {
+		for j := i + 1; j < peerCount; j++ {
+			peers[i].AddPeer(peers[j].Addr())
+		}
+	}
+	//Phase 2 : Random insertions with delay
+	wg.Add(insertCount)
+	for i := 0; i < insertCount; i++ {
+		go func(i int) {
+			defer wg.Done()
+			time.Sleep(1 * time.Second)
+			log.WithFields(log.Fields{"count": i}).Info("Insert Triggered")
+			peer := rand.Intn(peerCount)
+			data := RandomString(10)
+			//sleep := time.Duration(rand.Intn(5))
+			peers[peer].GetBlockChain().Add(data)
+		}(i)
+		//done <- true
+	}
+	wg.Wait()
+}
+
 func main() {
+	//Simulate(10, 10000, 100)
 	RunDevelTerminal()
 }

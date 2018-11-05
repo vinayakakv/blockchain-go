@@ -15,12 +15,12 @@ import (
 func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 	body, ok := data.(map[string]interface{})
 	if !ok {
-		log.Error("Invalid data recieved in PING")
+		p.log.Error("Invalid data recieved in PING")
 		return
 	}
 	reply, err := Send(Message{"PONG", nil}, conn, true)
 	if err != nil {
-		log.WithFields(log.Fields{
+		p.log.WithFields(log.Fields{
 			"what" : err,
 		}).Error("Error while waiting for ACK")
 		return
@@ -33,7 +33,7 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 		ip = strings.Split(ip, ":")[0]
 		ip = ip + fmt.Sprintf(":%v", body["port"])
 		p.neighbours.Store(ip, true)
-		log.WithFields(log.Fields{
+		p.log.WithFields(log.Fields{
 			"ip" : ip,
 		}).Info("Added to peer list")
 	}
@@ -43,7 +43,7 @@ func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
 	buf := new(bytes.Buffer)
 	byteData, err := base64.StdEncoding.DecodeString(data.(string))
 	if err != nil {
-		log.WithFields(log.Fields{
+		p.log.WithFields(log.Fields{
 			"what" : err,
 		}).Error("Error while base64 decode")
 		return
@@ -52,10 +52,13 @@ func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
 	bc := blockchain.BlockChain{}
 	err = gob.NewDecoder(buf).Decode(&bc)
 	if err != nil {
-		log.WithFields(log.Fields{
+		p.log.WithFields(log.Fields{
 			"what" : err,
 		}).Error("Error while ungobbing")
 		return
 	}
-	p.blockchain.Replace(bc)
+	replaced := p.blockchain.Replace(bc)
+	if replaced {
+		p.log.Info("Blockchain replaced")
+	}
 }

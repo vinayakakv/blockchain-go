@@ -11,7 +11,7 @@ import (
 
 const (
 	BLOCK_GENERATION_INTERVAL      = 10 * time.Second
-	DIFFICULTY_ADJUSTMENT_INTERVAL = 10
+	DIFFICULTY_ADJUSTMENT_INTERVAL = 5
 )
 
 type BlockChain struct {
@@ -52,15 +52,12 @@ func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
 	return newDifficulty
 }
 
-func (bc *BlockChain) SetDifficulty(n uint64) {
-	bc.Difficulty = n
-}
 
 func (bc *BlockChain) InitBlockChain() {
 	bc.Lock()
 	defer bc.Unlock()
 	if len(bc.Chain) == 0 {
-		difficulty := uint64(3)
+		difficulty := uint64(1)
 		bc.CumulativeDifficulty = difficulty
 		bc.Chain = append(bc.Chain, &Block{
 			Index:        0,
@@ -82,14 +79,15 @@ func (bc *BlockChain) Add(data string) {
 	bc.CumulativeDifficulty += 1 << b.Difficulty
 }
 
-func (bc *BlockChain) Replace(other BlockChain) {
+func (bc *BlockChain) Replace(other BlockChain) bool{
 	bc.Lock()
 	defer bc.Unlock()
 	if !bc.dirty && other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {
 		bc.Chain = other.Chain
 		bc.CumulativeDifficulty = other.CumulativeDifficulty
-		log.Info("Blockchain replaced")
+		return true
 	}
+	return false
 }
 
 func (bc *BlockChain) IsValid() bool {
