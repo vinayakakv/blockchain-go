@@ -1,13 +1,13 @@
 package blockchain_core
 
 import (
-	"time"
-	"fmt"
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"os"
+	"strings"
+	"time"
 )
 
 func init() {

@@ -1,17 +1,17 @@
 package blockchain_core
 
 import (
-	"sync"
-	"time"
+	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	log "github.com/sirupsen/logrus"
 	"strings"
-	"github.com/davecgh/go-spew/spew"
-	"fmt"
+	"sync"
+	"time"
 )
 
 const (
-	BLOCK_GENERATION_INTERVAL      = 10 * time.Second
-	DIFFICULTY_ADJUSTMENT_INTERVAL = 5
+	BlockGenerationInterval      = 10 * time.Second
+	DifficultyAdjustmentInterval = 5
 )
 
 type BlockChain struct {
@@ -24,7 +24,7 @@ type BlockChain struct {
 
 func (bc *BlockChain) GetDifficulty() uint64 {
 	latestBlock := bc.Chain[len(bc.Chain)-1]
-	if latestBlock.Index%DIFFICULTY_ADJUSTMENT_INTERVAL == 0 && latestBlock.Index != 0 {
+	if latestBlock.Index%DifficultyAdjustmentInterval == 0 && latestBlock.Index != 0 {
 		return bc.GetAdjustedDifficulty()
 	} else {
 		return latestBlock.Difficulty
@@ -32,9 +32,9 @@ func (bc *BlockChain) GetDifficulty() uint64 {
 }
 
 func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
-	prevAdjustmentBlock := bc.Chain[len(bc.Chain)-DIFFICULTY_ADJUSTMENT_INTERVAL]
+	prevAdjustmentBlock := bc.Chain[len(bc.Chain)-DifficultyAdjustmentInterval]
 	latestBlock := bc.Chain[len(bc.Chain)-1]
-	timeExpected := BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL
+	timeExpected := BlockGenerationInterval * DifficultyAdjustmentInterval
 	t1 := time.Unix(prevAdjustmentBlock.Timestamp, 0)
 	t2 := time.Unix(latestBlock.Timestamp, 0)
 	timeTaken := t2.Sub(t1)
@@ -51,7 +51,6 @@ func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
 	bc.Difficulty = newDifficulty
 	return newDifficulty
 }
-
 
 func (bc *BlockChain) InitBlockChain() {
 	bc.Lock()
@@ -79,7 +78,7 @@ func (bc *BlockChain) Add(data string) {
 	bc.CumulativeDifficulty += 1 << b.Difficulty
 }
 
-func (bc *BlockChain) Replace(other BlockChain) bool{
+func (bc *BlockChain) Replace(other BlockChain) bool {
 	bc.Lock()
 	defer bc.Unlock()
 	if !bc.dirty && other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {

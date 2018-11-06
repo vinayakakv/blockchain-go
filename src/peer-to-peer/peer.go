@@ -2,17 +2,17 @@
 package peer_to_peer
 
 import (
-	"net"
-	"fmt"
-	log "github.com/sirupsen/logrus"
+	blockchain "../blockchain-core"
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
-	"time"
-	"sync"
-	blockchain "../blockchain-core"
-	"encoding/gob"
-	"bytes"
+	"fmt"
+	log "github.com/sirupsen/logrus"
+	"net"
 	"os"
+	"sync"
+	"time"
 )
 
 func init() {

@@ -2,13 +2,13 @@ package main
 
 import (
 	peer "./src/peer-to-peer"
-	"math/rand"
 	"fmt"
+	"github.com/c-bata/go-prompt"
+	log "github.com/sirupsen/logrus"
+	"math/rand"
+	"os"
 	"strconv"
 	"strings"
-	"github.com/c-bata/go-prompt"
-	"os"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 )
@@ -22,7 +22,7 @@ func init() {
 func RandomString(len int) string {
 	bytes := make([]byte, len)
 	for i := 0; i < len; i++ {
-		bytes[i] = byte(65 + rand.Intn(25)) //A=65 and Z = 65+25
+		bytes[i] = byte(65 + rand.Intn(25))
 	}
 	return string(bytes)
 }
@@ -78,9 +78,10 @@ func RunDevelTerminal() {
 	p.Run()
 }
 
-func Simulate(peerCount int, basePort uint16, insertCount int) {
+func Simulate(peerCount int, basePort uint16, insertCount int, networkType string) {
 	// Phase 1 : Initialization
 	peers := make([]*peer.Peer, peerCount)
+	done := make(chan bool)
 	var wg sync.WaitGroup
 	wg.Add(peerCount)
 	for i := 0; i < peerCount; i++ {
@@ -93,29 +94,51 @@ func Simulate(peerCount int, basePort uint16, insertCount int) {
 		}(i)
 	}
 	wg.Wait()
-	for i := 0; i < peerCount; i++ {
-		for j := i + 1; j < peerCount; j++ {
-			peers[i].AddPeer(peers[j].Addr())
+
+	//Phase 2: Connectivity
+	switch networkType {
+	case "fc":
+		for i := 0; i < peerCount; i++ {
+			for j := i + 1; j < peerCount; j++ {
+				peers[i].AddPeer(peers[j].Addr())
+			}
+		}
+	case "lin":
+		for i := 0; i < peerCount-1; i++ {
+			peers[i].AddPeer(peers[i+1].Addr())
+		}
+	case "cir":
+		for i := 0; i < peerCount-1; i++ {
+			peers[i].AddPeer(peers[i+1].Addr())
+		}
+		peers[peerCount-1].AddPeer(peers[0].Addr())
+	case "ran":
+		for i := 0; i < peerCount; i++ {
+			for j := i + 1; j < peerCount; j++ {
+				add := rand.Intn(2) == 1
+				if add {
+					peers[i].AddPeer(peers[j].Addr())
+				}
+			}
 		}
 	}
-	//Phase 2 : Random insertions with delay
-	wg.Add(insertCount)
+
+	//Phase 3 : Random insertions with delay
 	for i := 0; i < insertCount; i++ {
-		go func(i int) {
-			defer wg.Done()
-			time.Sleep(1 * time.Second)
-			log.WithFields(log.Fields{"count": i}).Info("Insert Triggered")
-			peer := rand.Intn(peerCount)
-			data := RandomString(10)
-			//sleep := time.Duration(rand.Intn(5))
-			peers[peer].GetBlockChain().Add(data)
-		}(i)
+		p := rand.Intn(peerCount)
+		data := RandomString(10)
+		sleep := time.Duration(rand.Intn(5))
+		log.WithFields(log.Fields{
+			"count": i,
+			"peer" : peers[p].Addr(),
+		}).Info("Insert Triggered")
+		peers[p].GetBlockChain().Add(data)
+		time.Sleep(sleep * time.Second)
 		//done <- true
 	}
-	wg.Wait()
+	<-done
 }
 
 func main() {
-	//Simulate(10, 10000, 100)
-	RunDevelTerminal()
+	Simulate(10, 10000, 70, "ran")
 }

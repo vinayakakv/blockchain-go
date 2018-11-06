@@ -1,14 +1,14 @@
 package peer_to_peer
 
 import (
-	"net"
-	log "github.com/sirupsen/logrus"
-	"strings"
-	"fmt"
-	"bytes"
-	"encoding/gob"
 	blockchain "../blockchain-core"
+	"bytes"
 	"encoding/base64"
+	"encoding/gob"
+	"fmt"
+	log "github.com/sirupsen/logrus"
+	"net"
+	"strings"
 )
 
 
