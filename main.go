@@ -1,119 +1,144 @@
 package main
 
 import (
-	blockchain "./src/blockchain-core"
-	"math/rand"
-	"time"
+	peer "./src/peer-to-peer"
 	"fmt"
-	"github.com/manifoldco/promptui"
-	"strconv"
+	"github.com/c-bata/go-prompt"
+	log "github.com/sirupsen/logrus"
+	"math/rand"
 	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
+
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
+}
 
 func RandomString(len int) string {
 	bytes := make([]byte, len)
 	for i := 0; i < len; i++ {
-		bytes[i] = byte(65 + rand.Intn(25)) //A=65 and Z = 65+25
+		bytes[i] = byte(65 + rand.Intn(25))
 	}
 	return string(bytes)
 }
 
-func AnalyzeMining(maxDifficulty uint64, insertCount uint64) []uint64 {
-	bc := blockchain.BlockChain{}
-	bc.InitBlockChain()
-	avgTime := make([]uint64, maxDifficulty)
-	for i := uint64(1); i <= maxDifficulty; i++ {
-		blockchain.SetDifficulty(i)
-		fmt.Printf("Current Difficulty is %d\n", i)
-		for j := uint64(0); j < insertCount; j++ {
-			start := time.Now()
-			bc.Add(RandomString(10))
-			avgTime[i-1] += uint64(time.Since(start) / time.Microsecond)
-		}
-		avgTime[i-1] /= insertCount
+var p = &peer.Peer{}
+
+var suggestions = []prompt.Suggest{
+	{Text: "init", Description: "Creates the Peer listening on specified port"},
+	{Text: "add", Description: "Adds Peer specified by address to neighbour list"},
+	{Text: "exit", Description: "Quits the program"},
+	{Text: "insert", Description: "Inserts a block into Blockchain"},
+	{Text: "print", Description: "Prints the Blockchain"},
+}
+
+func executor(input string) {
+	input = strings.TrimSpace(input)
+	parts := strings.Split(input, " ")
+	switch parts[0] {
+	case "init":
+		port, _ := strconv.Atoi(parts[1])
+		p = peer.CreatePeer(uint16(port))
+		p.AddHandler("PING", peer.HandlePING)
+		p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+		go p.Start()
+	case "add":
+		p.AddPeer(parts[1])
+	case "exit":
+		os.Exit(0)
+	case "insert":
+		p.GetBlockChain().Add(parts[1])
+	case "print":
+		p.GetBlockChain().Print()
+	default:
+		fmt.Printf("Unknown command %s\n", parts[0])
 	}
-	return avgTime
+}
+
+func completer(in prompt.Document) []prompt.Suggest {
+	w := in.GetWordBeforeCursor()
+	if len(strings.Split(in.TextBeforeCursor(), " ")) > 1 || w == "" {
+		return []prompt.Suggest{}
+	}
+	return prompt.FilterHasPrefix(suggestions, w, true)
+}
+
+func RunDevelTerminal() {
+	p := prompt.New(
+		executor,
+		completer,
+		prompt.OptionPrefix(">>"),
+		prompt.OptionTitle("bc-prompt"),
+	)
+	p.Run()
+}
+
+func Simulate(peerCount int, basePort uint16, insertCount int, networkType string) {
+	// Phase 1 : Initialization
+	peers := make([]*peer.Peer, peerCount)
+	done := make(chan bool)
+	var wg sync.WaitGroup
+	wg.Add(peerCount)
+	for i := 0; i < peerCount; i++ {
+		go func(i int) {
+			defer wg.Done()
+			peers[i] = peer.CreatePeer(basePort + uint16(i))
+			peers[i].AddHandler("PING", peer.HandlePING)
+			peers[i].AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+			go peers[i].Start()
+		}(i)
+	}
+	wg.Wait()
+
+	//Phase 2: Connectivity
+	switch networkType {
+	case "fc":
+		for i := 0; i < peerCount; i++ {
+			for j := i + 1; j < peerCount; j++ {
+				peers[i].AddPeer(peers[j].Addr())
+			}
+		}
+	case "lin":
+		for i := 0; i < peerCount-1; i++ {
+			peers[i].AddPeer(peers[i+1].Addr())
+		}
+	case "cir":
+		for i := 0; i < peerCount-1; i++ {
+			peers[i].AddPeer(peers[i+1].Addr())
+		}
+		peers[peerCount-1].AddPeer(peers[0].Addr())
+	case "ran":
+		for i := 0; i < peerCount; i++ {
+			for j := i + 1; j < peerCount; j++ {
+				add := rand.Intn(2) == 1
+				if add {
+					peers[i].AddPeer(peers[j].Addr())
+				}
+			}
+		}
+	}
+
+	//Phase 3 : Random insertions with delay
+	for i := 0; i < insertCount; i++ {
+		p := rand.Intn(peerCount)
+		data := RandomString(10)
+		sleep := time.Duration(rand.Intn(5))
+		log.WithFields(log.Fields{
+			"count": i,
+			"peer" : peers[p].Addr(),
+		}).Info("Insert Triggered")
+		peers[p].GetBlockChain().Add(data)
+		time.Sleep(sleep * time.Second)
+		//done <- true
+	}
+	<-done
 }
 
 func main() {
-	//avgTime := AnalyzeMining(6, 10)
-	//	fmt.Println("%v\n", avgTime)
-	bc := blockchain.BlockChain{}
-	for ; ; {
-		list := promptui.Select{
-			Label: "Select Operation",
-			Items: []string{
-				"Create Blockchain",
-				"Set Difficulty",
-				"Insert Block",
-				"View Blockchain",
-				"Analyze Mining",
-				"Exit",
-			},
-			//Templates: &templates,
-		}
-		handlers := []func(){
-			func() {
-				fmt.Printf("Creating Blockchain\n", )
-				bc.InitBlockChain()
-			},
-			func() {
-				prompt := promptui.Prompt{Label: "Difficulty"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				difficulty, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				blockchain.SetDifficulty(uint64(difficulty))
-			},
-			func() {
-				prompt := promptui.Prompt{Label: "String Data"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				bc.Add(data)
-				fmt.Printf("Data Successfully Inserted\n")
-			},
-			func() {
-				bc.Print()
-			},
-			func() {
-				prompt := promptui.Prompt{Label: "maxDifficulty"}
-				data, err := prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				maxDifficulty, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				prompt = promptui.Prompt{Label: "maxRuns"}
-				data, err = prompt.Run()
-				if err != nil {
-					panic(err)
-				}
-				maxRuns, err := strconv.Atoi(data)
-				if err != nil {
-					fmt.Printf("%s\n", err)
-					return
-				}
-				res := AnalyzeMining(uint64(maxDifficulty), uint64(maxRuns))
-				fmt.Printf("%v\n", res)
-			},
-			func() {
-				os.Exit(0)
-			},
-		}
-		idx, _, err := list.Run()
-		if err != nil {
-			panic(err)
-		}
-		handlers[idx]()
-	}
+	Simulate(10, 10000, 70, "ran")
 }
