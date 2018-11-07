@@ -14,9 +14,9 @@ import (
 )
 
 func init() {
-	log.SetFormatter(&log.JSONFormatter{})
+	//log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.TraceLevel)
 }
 
 func RandomString(len int) string {
@@ -46,14 +46,16 @@ func executor(input string) {
 		p = peer.CreatePeer(uint16(port))
 		p.AddHandler("PING", peer.HandlePING)
 		p.AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+		p.AddHandler("NEWBLOCK", peer.HandleNEWBLOCK)
+		p.AddHandler("GETBLOCKCHAIN", peer.HandleGETBLOCKCHAIN)
 		go p.Start()
-	case "add":
+	case "add", "a":
 		p.AddPeer(parts[1])
-	case "exit":
+	case "exit", "e":
 		os.Exit(0)
-	case "insert":
+	case "insert", "i":
 		p.GetBlockChain().Add(parts[1])
-	case "print":
+	case "print", "p":
 		p.GetBlockChain().Print()
 	default:
 		fmt.Printf("Unknown command %s\n", parts[0])
@@ -130,7 +132,7 @@ func Simulate(peerCount int, basePort uint16, insertCount int, networkType strin
 		sleep := time.Duration(rand.Intn(5))
 		log.WithFields(log.Fields{
 			"count": i,
-			"peer" : peers[p].Addr(),
+			"peer":  peers[p].Addr(),
 		}).Info("Insert Triggered")
 		peers[p].GetBlockChain().Add(data)
 		time.Sleep(sleep * time.Second)
@@ -140,5 +142,6 @@ func Simulate(peerCount int, basePort uint16, insertCount int, networkType strin
 }
 
 func main() {
-	Simulate(10, 10000, 70, "ran")
+	//Simulate(10, 10000, 70, "ran")
+	RunDevelTerminal()
 }
