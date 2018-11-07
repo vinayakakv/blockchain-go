@@ -21,8 +21,8 @@ func init() {
 }
 
 const (
-	DIALTIMEOUT = time.Second * 5
-	RWTIMEOUT   = time.Second * 80
+	DIALTIMEOUT   = time.Second * 5
+	RWTIMEOUT     = time.Second * 80
 	BCASTINTERVAL = time.Second * 2
 )
 
@@ -102,9 +102,28 @@ func (p *Peer) init() {
 func (p *Peer) Start() {
 	p.init()
 	go p.BroadcastBlockChain()
+	go p.BroadcastAddition()
 	for {
 		go p.handleConn(<-p.connections)
 	}
+}
+
+func Send(message Message, conn net.Conn, wantsReply bool) (reply Message, e error) {
+	if conn == nil {
+		e = errors.New("attempting to write to nil connection")
+		return
+	}
+	e = json.NewEncoder(conn).Encode(message)
+	if e != nil {
+		return
+	}
+	if wantsReply {
+		e = json.NewDecoder(conn).Decode(&reply)
+		if e != nil {
+			return
+		}
+	}
+	return
 }
 
 //Adds a peer to neighbours after performing a handshake
@@ -153,6 +172,8 @@ func (p *Peer) AddPeer(addr string) (e error) {
 			"addr": addr,
 		}).Info("Successfully added peer")
 	}
+	p.log.Info("GETBLOCKCHAIN triggered")
+	p.Broadcast(Message{Action: "GETBLOCKCHAIN"})
 	return
 }
 
@@ -182,65 +203,68 @@ func (p *Peer) handleConn(client net.Conn) {
 	handler(p, client, message.Data)
 }
 
+func (p *Peer) Broadcast(m Message) {
+	p.neighbours.Range(func(addr, valid interface{}) bool {
+		addrStr := addr.(string)
+		isValid := valid.(bool)
+		if isValid {
+			conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
+			//defer conn.Close()
+			if err != nil {
+				p.neighbours.Store(addr, false)
+				p.log.WithFields(log.Fields{
+					"to":   addrStr,
+					"what": err,
+				}).Error("Timeout error while Broadcasting")
+				return true
+			}
+			conn.SetDeadline(time.Now().Add(RWTIMEOUT))
+			_, err = Send(m, conn, false)
+			if err != nil {
+				p.neighbours.Store(addr, false)
+				p.log.WithFields(log.Fields{
+					"to":   addrStr,
+					"what": err,
+				}).Error("Send error while Broadcasting")
+				return true
+			}
+		}
+		return true
+	})
+}
+
 func (p *Peer) BroadcastBlockChain() {
+	var data bytes.Buffer
+	p.blockchain.ClearDirty()
+	p.blockchain.RLock()
+	err := gob.NewEncoder(&data).Encode(p.blockchain)
+	p.blockchain.RUnlock()
+	if err != nil {
+		p.log.WithFields(log.Fields{
+			"what": err,
+		}).Error("Error while gobbing")
+		return
+	}
+	m := Message{Action: "BLOCKCHAINBCAST", Data: data.Bytes()}
+	p.log.Info("BLOCKCHAINBCAST Triggered")
+	p.Broadcast(m)
+}
+
+func (p *Peer) BroadcastAddition() {
 	for {
-		time.Sleep(BCASTINTERVAL)
+		newBlock := p.blockchain.GetNewBlock()
 		var data bytes.Buffer
-		p.blockchain.ClearDirty()
-		p.blockchain.RLock()
-		err := gob.NewEncoder(&data).Encode(p.blockchain)
-		p.blockchain.RUnlock()
+		err := gob.NewEncoder(&data).Encode(*newBlock)
 		if err != nil {
 			p.log.WithFields(log.Fields{
 				"what": err,
 			}).Error("Error while gobbing")
 			return
 		}
-		m := Message{Action: "BLOCKCHAINBCAST", Data: data.Bytes()}
-		p.neighbours.Range(func(addr, valid interface{}) bool {
-			addrStr := addr.(string)
-			isValid := valid.(bool)
-			if isValid {
-				conn, err := net.DialTimeout("tcp4", addrStr, DIALTIMEOUT)
-				//defer conn.Close()
-				if err != nil {
-					p.neighbours.Store(addr, false)
-					p.log.WithFields(log.Fields{
-						"to":   addrStr,
-						"what": err,
-					}).Error("Timeout error while Broadcasting")
-					return true
-				}
-				conn.SetDeadline(time.Now().Add(RWTIMEOUT))
-				_, err = Send(m, conn, false)
-				if err != nil {
-					p.neighbours.Store(addr, false)
-					p.log.WithFields(log.Fields{
-						"to":   addrStr,
-						"what": err,
-					}).Error("Send error while Broadcasting")
-					return true
-				}
-			}
-			return true
-		})
+		m := Message{Action: "NEWBLOCK", Data: data.Bytes()}
+		p.log.Info("NEWBLOCK Triggered")
+		p.Broadcast(m)
 	}
 }
 
-func Send(message Message, conn net.Conn, wantsReply bool) (reply Message, e error) {
-	if conn == nil {
-		e = errors.New("attempting to write to nil connection")
-		return
-	}
-	e = json.NewEncoder(conn).Encode(message)
-	if e != nil {
-		return
-	}
-	if wantsReply {
-		e = json.NewDecoder(conn).Decode(&reply)
-		if e != nil {
-			return
-		}
-	}
-	return
-}
+
