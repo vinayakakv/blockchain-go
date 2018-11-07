@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-
 func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 	body, ok := data.(map[string]interface{})
 	if !ok {
@@ -21,7 +20,7 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 	reply, err := Send(Message{"PONG", nil}, conn, true)
 	if err != nil {
 		p.log.WithFields(log.Fields{
-			"what" : err,
+			"what": err,
 		}).Error("Error while waiting for ACK")
 		return
 	}
@@ -34,9 +33,48 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 		ip = ip + fmt.Sprintf(":%v", body["port"])
 		p.neighbours.Store(ip, true)
 		p.log.WithFields(log.Fields{
-			"ip" : ip,
+			"ip": ip,
 		}).Info("Added to peer list")
 	}
+	p.log.Info("GETBLOCKCHAIN triggered")
+	p.Broadcast(Message{Action: "GETBLOCKCHAIN"})
+}
+
+func HandleNEWBLOCK(p *Peer, conn net.Conn, data interface{}) {
+	buf := new(bytes.Buffer)
+	byteData, err := base64.StdEncoding.DecodeString(data.(string))
+	if err != nil {
+		p.log.WithFields(log.Fields{
+			"what": err,
+		}).Error("Error while base64 decode")
+		return
+	}
+	buf.Write(byteData)
+	b := &blockchain.Block{}
+	err = gob.NewDecoder(buf).Decode(&b)
+	if err != nil {
+		p.log.WithFields(log.Fields{
+			"what": err,
+		}).Error("Error while ungobbing")
+		return
+	}
+	lastBlock := p.blockchain.Chain[len(p.blockchain.Chain)-1]
+	if b.Index > lastBlock.Index {
+		if lastBlock.Hash == b.PreviousHash {
+			p.blockchain.AddBlock(b)
+			p.log.WithFields(log.Fields{
+				"index": b.Index,
+				"data":  b.Data,
+			}).Info("Inserted Block")
+		} else {
+			p.log.Info("GETBLOCKCHAIN triggered")
+			p.Broadcast(Message{Action: "GETBLOCKCHAIN"})
+		}
+	}
+}
+
+func HandleGETBLOCKCHAIN(p *Peer, conn net.Conn, data interface{}) {
+	p.BroadcastBlockChain()
 }
 
 func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
@@ -44,7 +82,7 @@ func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
 	byteData, err := base64.StdEncoding.DecodeString(data.(string))
 	if err != nil {
 		p.log.WithFields(log.Fields{
-			"what" : err,
+			"what": err,
 		}).Error("Error while base64 decode")
 		return
 	}
@@ -53,7 +91,7 @@ func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
 	err = gob.NewDecoder(buf).Decode(&bc)
 	if err != nil {
 		p.log.WithFields(log.Fields{
-			"what" : err,
+			"what": err,
 		}).Error("Error while ungobbing")
 		return
 	}
