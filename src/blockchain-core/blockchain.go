@@ -16,6 +16,7 @@ const (
 
 type BlockChain struct {
 	mutex                sync.RWMutex
+	insertions           chan *Block
 	Chain                []*Block
 	CumulativeDifficulty uint64
 	dirty                bool
@@ -29,6 +30,10 @@ func (bc *BlockChain) GetDifficulty() uint64 {
 	} else {
 		return latestBlock.Difficulty
 	}
+}
+
+func (bc *BlockChain) GetNewBlock() *Block {
+	return <-bc.insertions
 }
 
 func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
@@ -58,6 +63,7 @@ func (bc *BlockChain) InitBlockChain() {
 	if len(bc.Chain) == 0 {
 		difficulty := uint64(1)
 		bc.CumulativeDifficulty = difficulty
+		bc.insertions = make(chan *Block)
 		bc.Chain = append(bc.Chain, &Block{
 			Index:        0,
 			PreviousHash: "",
@@ -76,12 +82,24 @@ func (bc *BlockChain) Add(data string) {
 	bc.dirty = true
 	bc.Chain = append(bc.Chain, b)
 	bc.CumulativeDifficulty += 1 << b.Difficulty
+	bc.insertions <- b
+}
+
+func (bc *BlockChain) AddBlock(b *Block) {
+	bc.Lock()
+	defer bc.Unlock()
+	bc.dirty = true
+	if bc.Chain[len(bc.Chain)-1].Hash == b.PreviousHash {
+		bc.Chain = append(bc.Chain, b)
+		bc.CumulativeDifficulty += 1 << b.Difficulty
+		bc.insertions <- b
+	}
 }
 
 func (bc *BlockChain) Replace(other BlockChain) bool {
 	bc.Lock()
 	defer bc.Unlock()
-	if !bc.dirty && other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {
+	if other.IsValid() && other.CumulativeDifficulty > bc.CumulativeDifficulty {
 		bc.Chain = other.Chain
 		bc.CumulativeDifficulty = other.CumulativeDifficulty
 		return true
