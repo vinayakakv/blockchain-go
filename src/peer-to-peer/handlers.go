@@ -9,8 +9,12 @@ import (
 	log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
+	"time"
 )
 
+//Handler for the PING message
+//Replies for a PONG and waits for ACK
+//If ACK comes, adds other peer to neighbour list
 func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 	body, ok := data.(map[string]interface{})
 	if !ok {
@@ -40,6 +44,9 @@ func HandlePING(p *Peer, conn net.Conn, data interface{}) {
 	p.Broadcast(Message{Action: "GETBLOCKCHAIN"})
 }
 
+//Handler for NEWBLOCK
+//Validates the incoming block for hash and timestamp validity
+//If valid, tries to insert it into the blockchain. In case of failure, triggers GETBLOCKCHAIN
 func HandleNEWBLOCK(p *Peer, conn net.Conn, data interface{}) {
 	buf := new(bytes.Buffer)
 	byteData, err := base64.StdEncoding.DecodeString(data.(string))
@@ -60,7 +67,15 @@ func HandleNEWBLOCK(p *Peer, conn net.Conn, data interface{}) {
 	}
 	lastBlock := p.blockchain.Chain[len(p.blockchain.Chain)-1]
 	if b.Index > lastBlock.Index {
-		if lastBlock.Hash == b.PreviousHash {
+		t1 := time.Unix(lastBlock.Timestamp, 0)
+		now := time.Now()
+		diff := t1.Sub(now)
+		if lastBlock.Hash != lastBlock.CalculateHash() && diff > 2*time.Second && diff < -2*time.Second {
+			p.log.WithFields(log.Fields{
+				"index": b.Index,
+				"data":  b.Data,
+			}).Info("Invalid block received")
+		} else if lastBlock.Hash == b.PreviousHash {
 			p.blockchain.AddBlock(b)
 			p.log.WithFields(log.Fields{
 				"index": b.Index,
@@ -73,10 +88,14 @@ func HandleNEWBLOCK(p *Peer, conn net.Conn, data interface{}) {
 	}
 }
 
+//Handler for GETBLOCKCHAIN
+//Broadcasts the blockchain to all neighbours
 func HandleGETBLOCKCHAIN(p *Peer, conn net.Conn, data interface{}) {
 	p.BroadcastBlockChain()
 }
 
+//Handler for GETBLOCKCHAIN
+//Tries to replace the blockchain with received one
 func HandleBLOCKCHAINBCAST(p *Peer, conn net.Conn, data interface{}) {
 	buf := new(bytes.Buffer)
 	byteData, err := base64.StdEncoding.DecodeString(data.(string))

@@ -14,9 +14,9 @@ import (
 )
 
 func init() {
-	//log.SetFormatter(&log.JSONFormatter{})
+	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.TraceLevel)
+	log.SetLevel(log.InfoLevel)
 }
 
 func RandomString(len int) string {
@@ -80,6 +80,12 @@ func RunDevelTerminal() {
 	p.Run()
 }
 
+//Simulates the blockchain network
+//peerCount is number of peers to simulate with
+//basePort is the starting port. Peers are created sequentially starting from this port
+//insertCount is the number of insertions to be performed
+//networkType specifies the topology
+//fc- Fully Connected, lin-Linear, circ - Circular, ran - Random
 func Simulate(peerCount int, basePort uint16, insertCount int, networkType string) {
 	// Phase 1 : Initialization
 	peers := make([]*peer.Peer, peerCount)
@@ -92,6 +98,8 @@ func Simulate(peerCount int, basePort uint16, insertCount int, networkType strin
 			peers[i] = peer.CreatePeer(basePort + uint16(i))
 			peers[i].AddHandler("PING", peer.HandlePING)
 			peers[i].AddHandler("BLOCKCHAINBCAST", peer.HandleBLOCKCHAINBCAST)
+			peers[i].AddHandler("NEWBLOCK", peer.HandleNEWBLOCK)
+			peers[i].AddHandler("GETBLOCKCHAIN", peer.HandleGETBLOCKCHAIN)
 			go peers[i].Start()
 		}(i)
 	}
@@ -142,6 +150,6 @@ func Simulate(peerCount int, basePort uint16, insertCount int, networkType strin
 }
 
 func main() {
-	//Simulate(10, 10000, 70, "ran")
+	//Simulate(10, 10000, 100, "lin")
 	RunDevelTerminal()
 }

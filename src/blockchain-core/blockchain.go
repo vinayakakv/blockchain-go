@@ -10,19 +10,21 @@ import (
 )
 
 const (
-	BlockGenerationInterval      = 10 * time.Second
-	DifficultyAdjustmentInterval = 5
+	BlockGenerationInterval      = 10 * time.Second //Average time between insertion of blocks
+	DifficultyAdjustmentInterval = 5                //Interval for reviewing difficulty
 )
 
+//Implements in-memory Blockchain structure
 type BlockChain struct {
-	mutex                sync.RWMutex
-	insertions           chan *Block
-	Chain                []*Block
-	CumulativeDifficulty uint64
-	dirty                bool
-	Difficulty           uint64
+	mutex                sync.RWMutex //Lock to handle concurrent r/w
+	insertions           chan *Block  //Chanel for newly inserted blocks
+	Chain                []*Block     //Core Blockchain
+	CumulativeDifficulty uint64       //Sum(2^difficulty_b) for all Blocks b
+	Difficulty           uint64       //Current difficulty of blockchain
 }
 
+//Returns the difficulty for new block
+//Adjusted difficulty is returned if Last Block Index is a multiple of Difficulty Adjustment Interval
 func (bc *BlockChain) GetDifficulty() uint64 {
 	latestBlock := bc.Chain[len(bc.Chain)-1]
 	if latestBlock.Index%DifficultyAdjustmentInterval == 0 && latestBlock.Index != 0 {
@@ -32,10 +34,15 @@ func (bc *BlockChain) GetDifficulty() uint64 {
 	}
 }
 
+//Returns a block form Insert Chanel of Blockchain
 func (bc *BlockChain) GetNewBlock() *Block {
 	return <-bc.insertions
 }
 
+//Returns adjusted difficulty for the blockchain
+//Difficulty is increased if block insertions are too fast
+//Difficulty is decreased if block insertions are too slow
+//Difficulty is kept constant if block insertions are at normal rate
 func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
 	prevAdjustmentBlock := bc.Chain[len(bc.Chain)-DifficultyAdjustmentInterval]
 	latestBlock := bc.Chain[len(bc.Chain)-1]
@@ -57,6 +64,9 @@ func (bc *BlockChain) GetAdjustedDifficulty() uint64 {
 	return newDifficulty
 }
 
+//Initiates a Blockchain
+//Initial Difficulty is set to 1
+//Creates and mines Genesis Block
 func (bc *BlockChain) InitBlockChain() {
 	bc.Lock()
 	defer bc.Unlock()
@@ -75,27 +85,34 @@ func (bc *BlockChain) InitBlockChain() {
 	}
 }
 
+//Adds a new block containing the data to the Blockchain
+//New block is also mined
+//Mined block is also sent to broadcast list
 func (bc *BlockChain) Add(data string) {
 	bc.Lock()
 	defer bc.Unlock()
 	b := CreateBlock(bc.Chain[len(bc.Chain)-1], data, bc.GetDifficulty())
-	bc.dirty = true
 	bc.Chain = append(bc.Chain, b)
 	bc.CumulativeDifficulty += 1 << b.Difficulty
 	bc.insertions <- b
 }
 
-func (bc *BlockChain) AddBlock(b *Block) {
+//Adds a new block to the Blockchain
+//New block is verified before adding it to the blockchain
+func (bc *BlockChain) AddBlock(b *Block) bool {
 	bc.Lock()
 	defer bc.Unlock()
-	bc.dirty = true
-	if bc.Chain[len(bc.Chain)-1].Hash == b.PreviousHash {
+	if b.CalculateHash() == b.Hash && bc.Chain[len(bc.Chain)-1].Hash == b.PreviousHash && bc.Chain[len(bc.Chain)-1].Index == b.Index-1 {
 		bc.Chain = append(bc.Chain, b)
 		bc.CumulativeDifficulty += 1 << b.Difficulty
 		bc.insertions <- b
+		return true
 	}
+	return false
 }
 
+//Replaces the current blockchain with other blockchain
+//Replacement happens iff other blockchain is valid and has a cumulative difficulty greater than that of current block
 func (bc *BlockChain) Replace(other BlockChain) bool {
 	bc.Lock()
 	defer bc.Unlock()
@@ -107,6 +124,8 @@ func (bc *BlockChain) Replace(other BlockChain) bool {
 	return false
 }
 
+//Returns weather current blockchain is valid
+//Verifies block integrity and hash linkages
 func (bc *BlockChain) IsValid() bool {
 	bc.RLock()
 	defer bc.RUnlock()
@@ -128,12 +147,7 @@ func (bc *BlockChain) IsValid() bool {
 	return true
 }
 
-func (bc *BlockChain) ClearDirty() {
-	bc.Lock()
-	defer bc.Unlock()
-	bc.dirty = false
-}
-
+//Dumps the entire blockchain in spew format
 func (bc *BlockChain) Dump() {
 	bc.RLock()
 	defer bc.RUnlock()
@@ -142,6 +156,7 @@ func (bc *BlockChain) Dump() {
 	}
 }
 
+//Prints the blockchain as list to stdout
 func (bc *BlockChain) Print() {
 	bc.RLock()
 	defer bc.RUnlock()
@@ -153,18 +168,22 @@ func (bc *BlockChain) Print() {
 	fmt.Print(str)
 }
 
+//Locks the blockchain for writing
 func (bc *BlockChain) Lock() {
 	bc.mutex.Lock()
 }
 
+//Locks the blockchain for reading
 func (bc *BlockChain) RLock() {
 	bc.mutex.RLock()
 }
 
+//Unlocks the blockchain which was locked for writing
 func (bc *BlockChain) Unlock() {
 	bc.mutex.Unlock()
 }
 
+//Unlocks the blockchain which was locked for reading
 func (bc *BlockChain) RUnlock() {
 	bc.mutex.RUnlock()
 }

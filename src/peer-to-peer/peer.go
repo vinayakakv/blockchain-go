@@ -1,4 +1,4 @@
-//P2P without peer discovery!
+//Implements basic P2P functionality over TCP Network
 package peer_to_peer
 
 import (
@@ -21,31 +21,36 @@ func init() {
 }
 
 const (
-	DIALTIMEOUT   = time.Second * 5
-	RWTIMEOUT     = time.Second * 80
-	BCASTINTERVAL = time.Second * 2
+	DIALTIMEOUT = time.Second * 2 //Timeout for Dialing connections
+	RWTIMEOUT   = time.Second * 2 //Timeout for Read/Write with a Peer
 )
 
+//Callback is a handler for various messages received by a Peer
+//p is the Peer who received the message
+//conn is the connection from where the message was received
+//arg is the data supplied in the message
 type callback func(p *Peer, conn net.Conn, arg interface{})
 
 //Represents a Node in P2P Network
 type Peer struct {
-	listenPort  uint16
-	addr        string
-	handlers    map[string]callback
-	connections chan net.Conn
-	neighbours  sync.Map //ip:port -> valid mapping
-	blockchain  *blockchain.BlockChain
-	log         *log.Entry
+	listenPort  uint16                 //TCP port where Current Peer is listening
+	addr        string                 //Address of the Current Peer in the Network
+	handlers    map[string]callback    //Handlers for each Message Type
+	connections chan net.Conn          //Incoming connections to a Peer
+	neighbours  sync.Map               //ip:port -> valid mapping
+	blockchain  *blockchain.BlockChain //Blockchain of Current Peer
+	log         *log.Entry             //Log Entry of Current Peer
 }
 
+//Returns the Network Address of current Peer
 func (p *Peer) Addr() string {
 	return p.addr
 }
 
+//Represents the Messages communicated between Peers
 type Message struct {
-	Action string
-	Data   interface{}
+	Action string      //Describes the intention of the message
+	Data   interface{} //Contains the data required perform the intent
 }
 
 // Creates a peer listening at specified port
@@ -57,6 +62,8 @@ func CreatePeer(listenPort uint16) *Peer {
 		log:        log.WithFields(log.Fields{"peer": listenPort}),
 	}
 }
+
+//Returns the Blockchain of Current Peer
 func (p *Peer) GetBlockChain() (*blockchain.BlockChain) {
 	return p.blockchain
 }
@@ -108,6 +115,10 @@ func (p *Peer) Start() {
 	}
 }
 
+//Sends a Message to connection
+//If wantsReply is true, wait for the reply
+//Otherwise returns immediately after sending
+//In case of timeout error, returns the error
 func Send(message Message, conn net.Conn, wantsReply bool) (reply Message, e error) {
 	if conn == nil {
 		e = errors.New("attempting to write to nil connection")
@@ -177,6 +188,8 @@ func (p *Peer) AddPeer(addr string) (e error) {
 	return
 }
 
+//Incoming connection handler
+//Decodes the JSON message and Executes associated handler
 func (p *Peer) handleConn(client net.Conn) {
 	defer client.Close()
 	message := new(Message)
@@ -203,6 +216,7 @@ func (p *Peer) handleConn(client net.Conn) {
 	handler(p, client, message.Data)
 }
 
+//Sends the Message to all the neighbours
 func (p *Peer) Broadcast(m Message) {
 	p.neighbours.Range(func(addr, valid interface{}) bool {
 		addrStr := addr.(string)
@@ -233,9 +247,9 @@ func (p *Peer) Broadcast(m Message) {
 	})
 }
 
+//Broadcasts the current blockchain to all neighbours
 func (p *Peer) BroadcastBlockChain() {
 	var data bytes.Buffer
-	p.blockchain.ClearDirty()
 	p.blockchain.RLock()
 	err := gob.NewEncoder(&data).Encode(p.blockchain)
 	p.blockchain.RUnlock()
@@ -250,6 +264,7 @@ func (p *Peer) BroadcastBlockChain() {
 	p.Broadcast(m)
 }
 
+//Broadcasts new insertions to all neighbours
 func (p *Peer) BroadcastAddition() {
 	for {
 		newBlock := p.blockchain.GetNewBlock()
@@ -262,9 +277,9 @@ func (p *Peer) BroadcastAddition() {
 			return
 		}
 		m := Message{Action: "NEWBLOCK", Data: data.Bytes()}
-		p.log.Info("NEWBLOCK Triggered")
+		p.log.WithFields(log.Fields{
+			"index": newBlock.Index,
+		}).Info("NEWBLOCK Triggered")
 		p.Broadcast(m)
 	}
 }
-
-
